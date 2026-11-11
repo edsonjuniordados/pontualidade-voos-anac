@@ -1,0 +1,190 @@
+// todas as medidas ficam na tabela _Medidas
+// a linha "pasta:" antes de cada grupo é a pasta de exibição (Propriedades > Pasta de exibição)
+
+// pasta: Volume
+
+Voos =
+COUNTROWS ( fato_voo )
+
+Voos Realizados =
+CALCULATE ( [Voos], fato_voo[situacao] = "REALIZADO" )
+
+Voos Cancelados =
+SUM ( fato_voo[cancelado] )
+
+// realizados sem horário previsto: não tem como medir atraso, ficam fora da A15
+// com filtro de data aplicado essa medida some, porque a data deles é nula
+Voos Sem Horário Previsto =
+CALCULATE (
+    [Voos],
+    fato_voo[situacao] = "REALIZADO",
+    ISBLANK ( fato_voo[pontual_15] )
+)
+
+// pasta: Pontualidade
+
+// pontual_15 é nulo pra cancelado e pra voo sem horário previsto, e COUNT ignora nulo.
+// cancelado fica fora porque não chegou: contar como atrasado misturaria duas métricas
+// que o painel mostra separadas (A15 e % cancelado)
+Voos Avaliados A15 =
+COUNT ( fato_voo[pontual_15] )
+
+Voos Pontuais =
+SUM ( fato_voo[pontual_15] )
+
+% A15 =
+DIVIDE ( [Voos Pontuais], [Voos Avaliados A15] )
+
+% Cancelado =
+DIVIDE ( [Voos Cancelados], [Voos] )
+
+% Voos +60min =
+VAR acimaDe60 =
+    CALCULATE ( [Voos], fato_voo[atraso_chegada_min] > 60 )
+RETURN
+    DIVIDE ( acimaDe60, [Voos Avaliados A15] )
+
+// pasta: Atraso
+
+// mediana e p90 em vez de média: 11 voos com mais de 24h de atraso mexem a média
+// de 1,04 pra 1,12 min, e a mediana nem se move
+Atraso Mediano Chegada =
+MEDIAN ( fato_voo[atraso_chegada_min] )
+
+Atraso P90 Chegada =
+PERCENTILEX.INC (
+    FILTER ( fato_voo, NOT ISBLANK ( fato_voo[atraso_chegada_min] ) ),
+    fato_voo[atraso_chegada_min],
+    0.9
+)
+
+// mesma regra do notebook: só quem passou dos 15 min e sem os atrasos suspeitos (> 24h)
+Atraso Médio dos Atrasados =
+CALCULATE (
+    AVERAGE ( fato_voo[atraso_chegada_min] ),
+    fato_voo[atraso_chegada_min] > 15,
+    fato_voo[atraso_suspeito] = 0
+)
+
+// pasta: Aeroportos
+
+// filtro de aeroporto e região passa pela relação ativa, que é a de origem
+// em DAX nulo <= 15 dá verdadeiro, por isso o NOT ISBLANK separado
+% A15 Partida (origem) =
+VAR avaliados =
+    CALCULATE ( [Voos], NOT ISBLANK ( fato_voo[atraso_partida_min] ) )
+VAR pontuais =
+    CALCULATE (
+        [Voos],
+        NOT ISBLANK ( fato_voo[atraso_partida_min] ),
+        fato_voo[atraso_partida_min] <= 15
+    )
+RETURN
+    DIVIDE ( pontuais, avaliados )
+
+// USERELATIONSHIP liga a relação de destino e desliga a de origem dentro da conta
+Chegadas (destino) =
+CALCULATE (
+    [Voos],
+    USERELATIONSHIP ( fato_voo[destino_icao], dim_aeroporto[icao] )
+)
+
+% A15 Chegada (destino) =
+CALCULATE (
+    [% A15],
+    USERELATIONSHIP ( fato_voo[destino_icao], dim_aeroporto[icao] )
+)
+
+Diferença Chegada x Partida (pp) =
+VAR chegada = [% A15 Chegada (destino)]
+VAR partida = [% A15 Partida (origem)]
+RETURN
+    IF (
+        NOT ISBLANK ( chegada ) && NOT ISBLANK ( partida ),
+        ( chegada - partida ) * 100
+    )
+
+// pasta: Tempo
+
+Variação A15 vs Mês Anterior (pp) =
+VAR atual = [% A15]
+VAR anterior =
+    CALCULATE ( [% A15], PREVIOUSMONTH ( dim_data[data] ) )
+RETURN
+    IF (
+        NOT ISBLANK ( atual ) && NOT ISBLANK ( anterior ),
+        ( atual - anterior ) * 100
+    )
+
+// razão da janela (pontuais / avaliados nos 7 dias), não média das 7 porcentagens diárias.
+// nos 6 primeiros dias de janeiro a janela não fecha, então fica em branco
+A15 Média Móvel 7 Dias =
+VAR ultimaData =
+    MAX ( dim_data[data] )
+VAR janela =
+    DATESINPERIOD ( dim_data[data], ultimaData, -7, DAY )
+VAR resultado =
+    CALCULATE ( [% A15], janela )
+RETURN
+    IF (
+        HASONEVALUE ( dim_data[data] ) && COUNTROWS ( janela ) = 7,
+        resultado
+    )
+
+// em 2025 são 6 dias: 22/09 e de 09 a 13/12
+Dias Abaixo de 60% =
+VAR a15PorDia =
+    ADDCOLUMNS ( VALUES ( dim_data[data] ), "@a15", [% A15] )
+VAR diasRuins =
+    FILTER ( a15PorDia, NOT ISBLANK ( [@a15] ) && [@a15] < 0.6 )
+RETURN
+    COALESCE ( COUNTROWS ( diasRuins ), 0 )
+
+// série de pontos por cima da linha diária, só aparece nos dias abaixo de 60%
+Marcador Dia Abaixo de 60% =
+VAR a15 = [% A15]
+RETURN
+    IF (
+        HASONEVALUE ( dim_data[data] ) && NOT ISBLANK ( a15 ) && a15 < 0.6,
+        a15
+    )
+
+// pasta: Rotas
+
+// empate entre empresas aparece com os nomes separados por vírgula
+Empresa Principal =
+VAR voosPorEmpresa =
+    ADDCOLUMNS ( VALUES ( dim_empresa[nome] ), "@voos", [Voos] )
+VAR maior =
+    TOPN ( 1, voosPorEmpresa, [@voos], DESC )
+RETURN
+    IF (
+        HASONEVALUE ( fato_voo[rota] ),
+        CONCATENATEX ( maior, dim_empresa[nome], ", " )
+    )
+
+% Voos da Empresa Principal =
+VAR voosPorEmpresa =
+    ADDCOLUMNS ( VALUES ( dim_empresa[nome] ), "@voos", [Voos] )
+RETURN
+    IF (
+        HASONEVALUE ( fato_voo[rota] ),
+        DIVIDE ( MAXX ( voosPorEmpresa, [@voos] ), [Voos] )
+    )
+
+// pasta: Rótulos
+
+Título Dinâmico =
+VAR empresa =
+    SELECTEDVALUE ( dim_empresa[nome], "todas as empresas" )
+VAR periodo =
+    SWITCH (
+        TRUE (),
+        HASONEVALUE ( dim_data[data] ), FORMAT ( SELECTEDVALUE ( dim_data[data] ), "dd/mm/yyyy" ),
+        HASONEVALUE ( dim_data[nome_mes] ), SELECTEDVALUE ( dim_data[nome_mes] ) & " de 2025",
+        ISFILTERED ( dim_data ), "período selecionado",
+        "2025"
+    )
+RETURN
+    "A15 de " & FORMAT ( [% A15], "0.0%" ) & " em " & empresa & ", " & periodo
+        & " (" & FORMAT ( [Voos Avaliados A15], "#,0" ) & " voos avaliados)"
