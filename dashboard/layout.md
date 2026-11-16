@@ -2,7 +2,7 @@
 
 Três páginas, todas com o mesmo cabeçalho: caixa de texto com o `[Título Dinâmico]` e slicers de empresa (`dim_empresa[nome]`), mês (`dim_data[nome_mes]`) e região (`dim_aeroporto[regiao]`). Embaixo do slicer de região, em texto pequeno: "Filtro de aeroporto e região considera a origem do voo".
 
-Os números entre parênteses são os do notebook, servem pra conferir se o painel bateu. Os prints entram em `reports/figuras/painel_*.png` quando o painel estiver pronto (`painel_visao_geral.png`, `painel_empresas_horarios.png`, `painel_aeroportos_rotas.png`).
+Os números entre parênteses são os do notebook, servem pra conferir se o painel bateu. Os prints de cada página estão em `reports/figuras/` (`painel_visao_geral.png`, `painel_empresas_horarios.png`, `painel_aeroportos_rotas.png`).
 
 ## 1. Visão geral
 

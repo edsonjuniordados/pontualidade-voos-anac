@@ -1,6 +1,6 @@
 # Pontualidade dos voos domésticos no Brasil (2025)
 
-Análise de 804.861 voos nacionais de 2025 com os dados abertos da ANAC. Montei um modelo estrela em SQL (DuckDB), respondi as perguntas de negócio em SQL e deixei o modelo e as medidas DAX prontos para o painel em Power BI.
+Análise de 804.861 voos nacionais de 2025 com os dados abertos da ANAC. Montei um modelo estrela em SQL (DuckDB), respondi as perguntas de negócio em SQL e montei um painel em Power BI com três páginas.
 
 ![A15 por hora de partida](reports/figuras/02_a15_por_hora.png)
 
@@ -35,7 +35,7 @@ sql/03_fato.sql         fato_voo: atraso em minutos, cancelado, pontual_15
 sql/04_checagens.sql    contagens de qualidade impressas a cada carga
 src/construir_base.py   roda os .sql em ordem e exporta o modelo em Parquet
 notebooks/01_analise_pontualidade.ipynb   as análises, em SQL
-dashboard/              modelo do Power BI, medidas DAX e layout das páginas
+dashboard/              painel .pbix, modelo do Power BI, medidas DAX e layout das páginas
 ```
 
 ## O que encontrei
@@ -77,7 +77,21 @@ A maior rota do país, Santos Dumont x Congonhas, cancela 3,5% dos voos, o dobro
 
 ## Painel em Power BI
 
-O modelo exportado em `data/modelo/*.parquet` é o que o Power BI lê. Em [dashboard/](dashboard/) estão:
+![Painel: visão geral](reports/figuras/painel_visao_geral.png)
+
+O painel está em [dashboard/painel_pontualidade.pbix](dashboard/painel_pontualidade.pbix), já com os dados carregados. Abre no Power BI Desktop de setembro de 2025 em diante. São três páginas, todas com filtro de empresa, mês e região:
+
+- Visão geral: os seis números do ano, A15 e cancelamento por mês e a série diária com média móvel de 7 dias. Os 6 dias abaixo de 60% aparecem marcados em vermelho.
+- Empresas e horários: ranking, tabela com A15 e cancelamento lado a lado, matriz de faixa de horário por empresa e A15 por hora de partida.
+- Aeroportos e rotas: partida e chegada de cada aeroporto, regiões com drill até o aeroporto e as rotas da menos para a mais pontual.
+
+![Painel: empresas e horários](reports/figuras/painel_empresas_horarios.png)
+
+![Painel: aeroportos e rotas](reports/figuras/painel_aeroportos_rotas.png)
+
+O Power BI lê os parquets de `data/modelo/` pelo parâmetro `PastaModelo`. Para atualizar a partir do seu clone, rode `src/construir_base.py`, troque o parâmetro em Transformar dados > Editar parâmetros para o caminho da pasta `data/modelo/` (terminando em barra) e clique em Atualizar.
+
+Em [dashboard/](dashboard/) também estão:
 
 - [modelo.md](dashboard/modelo.md): relações, hierarquias e o tratamento das duas chaves de aeroporto (origem ativa, destino inativa com `USERELATIONSHIP`).
 - [medidas.dax](dashboard/medidas.dax): 24 medidas (A15, % cancelado, mediana e P90 do atraso, A15 de partida e de chegada por aeroporto, variação mensal, média móvel de 7 dias, dias abaixo de 60%, título dinâmico).
